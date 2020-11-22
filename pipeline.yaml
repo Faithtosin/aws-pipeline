@@ -258,7 +258,7 @@ Resources:
       - CodeBuilProject
     Type: 'AWS::ECR::Repository'
     Properties:
-      ImageTagMutability: IMMUTABLE
+      ImageTagMutability: MUTABLE
       RepositoryName: !Ref MoxaEmuRepositoryName
       RepositoryPolicyText:
         Version: 2012-10-17
