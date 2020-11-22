@@ -140,6 +140,7 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
+        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
@@ -158,6 +159,7 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
+        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
@@ -176,6 +178,7 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
+        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
