@@ -1,9 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: CI/CD pipeline for GitHub projects
 Parameters:
-  MoxaEmuRepositoryName:
-    Type: String
-    Default: moxa-emulator-repository
   GitHubOwner:
     Type: String
     AllowedPattern: '[A-Za-z0-9-]+'
@@ -63,31 +60,6 @@ Resources:
                   - 's3:GetBucketLocation'
                 Resource:
                   - '*'
-              - Sid: ECRPolicy
-                Effect: Allow
-                Action:
-                  - 'ecr:GetDownloadUrlForLayer'
-                  - 'ecr:BatchGetImage'
-                  - 'ecr:BatchCheckLayerAvailability'
-                  - 'ecr:PutImage'
-                  - 'ecr:InitiateLayerUpload'
-                  - 'ecr:UploadLayerPart'
-                  - 'ecr:CompleteLayerUpload'
-                  - 'ecr:GetAuthorizationToken'
-                  - 'ecr:InitiateLayerUpload'
-                  - 'ec2:DescribeNetworkInterfaces'
-                  - 'ec2:CreateNetworkInterface'
-                  - 'ec2:DescribeDhcpOptions'
-                  - 'ec2:DescribeNetworkInterfaces'
-                  - 'ec2:DeleteNetworkInterface'
-                  - 'ec2:DescribeSubnets'
-                  - 'ec2:DescribeSecurityGroups'
-                  - 'ec2:DescribeSecurityGroupReferences'
-                  - 'ec2:DescribeStaleSecurityGroups'
-                  - 'ec2:DescribeVpcs'
-                  - 'ec2:CreateNetworkInterfacePermission'
-                Resource:
-                  - '*'
   CodeBuildSourceCredential:
     Type: 'AWS::CodeBuild::SourceCredential'
     Properties:
@@ -121,13 +93,8 @@ Resources:
       Environment:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
-        PrivilegedMode: true
         Image: !Ref CodeBuildEnvironmentImage
-        EnvironmentVariables:
-          - Name: ENV_NAME
-            Value: build
-          - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName}
+
   CodeBuilProjectDeployDev:  
     Type: 'AWS::CodeBuild::Project'
     Properties:
@@ -140,7 +107,6 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
-        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
@@ -151,7 +117,9 @@ Resources:
     Type: 'AWS::CodeBuild::Project'
     Properties:
       Name: !Sub '${AWS::StackName}-deploy-qa'
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      ServiceRole: !GetAtt 
+        - CodeBuildServiceRole
+        - Arn
       Source:
         Type: CODEPIPELINE
         BuildSpec: deployspec.yaml
@@ -159,7 +127,6 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
-        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
@@ -170,7 +137,9 @@ Resources:
     Type: 'AWS::CodeBuild::Project'
     Properties:
       Name: !Sub '${AWS::StackName}-deploy-prod'
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      ServiceRole: !GetAtt 
+        - CodeBuildServiceRole
+        - Arn
       Source:
         Type: CODEPIPELINE
         BuildSpec: deployspec.yaml
@@ -178,7 +147,6 @@ Resources:
         Type: CODEPIPELINE
       Environment:
         Type: LINUX_CONTAINER
-        PrivilegedMode: true
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
         EnvironmentVariables:
@@ -255,50 +223,16 @@ Resources:
           MatchEquals: '{Repo}'
       TargetPipeline: !Ref CodePipeline
       TargetAction: Source
-      TargetPipelineVersion: !GetAtt CodePipeline.Version
-  MoxaEmuRepository:
-    DependsOn:
-      - CodeBuilProject
-    Type: 'AWS::ECR::Repository'
-    Properties:
-      ImageTagMutability: MUTABLE
-      RepositoryName: !Ref MoxaEmuRepositoryName
-      RepositoryPolicyText:
-        Version: 2012-10-17
-        Statement:
-          - Action:
-              - 'ecr:BatchCheckLayerAvailability'
-              - 'ecr:BatchDeleteImage'
-              - 'ecr:BatchGetImage'
-              - 'ecr:CompleteLayerUpload'
-              - 'ecr:DeleteLifecyclePolicy'
-              - 'ecr:DeleteRepository'
-              - 'ecr:DeleteRepositoryPolicy'
-              - 'ecr:DescribeImages'
-              - 'ecr:DescribeRepositories'
-              - 'ecr:GetDownloadUrlForLayer'
-              - 'ecr:GetLifecyclePolicy'
-              - 'ecr:GetLifecyclePolicyPreview'
-              - 'ecr:GetRepositoryPolicy'
-              - 'ecr:InitiateLayerUpload'
-              - 'ecr:ListImages'
-              - 'ecr:PutImage'
-              - 'ecr:PutLifecyclePolicy'
-              - 'ecr:SetRepositoryPolicy'
-              - 'ecr:StartLifecyclePolicyPreview'
-              - 'ecr:UploadLayerPart'
-            Principal:
-              Service:
-                - codebuild.amazonaws.com
-                - codepipeline.amazonaws.com
-                - ecs.amazonaws.com
-            Effect: Allow
-            Sid: new statement
+      TargetPipelineVersion: !GetAtt 
+        - CodePipeline
+        - Version
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
     Properties:
       Name: !Ref 'AWS::StackName'
-      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      RoleArn: !GetAtt 
+        - CodePipelineServiceRole
+        - Arn
       ArtifactStore:
         Type: S3
         Location: !Ref CodePipelineArtifactStore
