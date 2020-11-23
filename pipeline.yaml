@@ -35,35 +35,30 @@ Resources:
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              - Sid: CloudWatchLogsPolicy
+              - Sid: 1
                 Effect: Allow
                 Action:
                   - 'logs:CreateLogGroup'
                   - 'logs:CreateLogStream'
                   - 'logs:PutLogEvents'
+                  - 'logs:FilterLogEvents'
+                  - 'logs:GetLogEvents'
                 Resource:
                   - '*'
-              - Sid: S3GetObjectPolicy
+              - Sid: 2
                 Effect: Allow
                 Action:
                   - 's3:GetObject'
                   - 's3:GetObjectVersion'
-                Resource:
-                  - '*'
-              - Sid: S3PutObjectPolicy
-                Effect: Allow
-                Action:
+                  - 's3:PutObject'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:CreateBucket'
+                  - 's3:List*'
                   - 's3:PutObject'
                 Resource:
                   - '*'
-              - Sid: S3BucketIdentity
-                Effect: Allow
-                Action:
-                  - 's3:GetBucketAcl'
-                  - 's3:GetBucketLocation'
-                Resource:
-                  - '*'
-              - Sid: ECRPolicy
+              - Sid: 3
                 Effect: Allow
                 Action:
                   - 'ecr:GetDownloadUrlForLayer'
@@ -86,6 +81,33 @@ Resources:
                   - 'ec2:DescribeStaleSecurityGroups'
                   - 'ec2:DescribeVpcs'
                   - 'ec2:CreateNetworkInterfacePermission'
+                Resource:
+                  - '*'
+              - Sid: 4
+                Effect: Allow
+                Action:
+                  - 'iam:AddRoleToInstanceProfile'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:CreateInstanceProfile'
+                  - 'iam:CreatePolicy'
+                  - 'iam:CreateRole'
+                  - 'iam:GetRole'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:ListPolicies'
+                  - 'iam:ListRoles'
+                  - 'iam:PassRole'
+                  - 'iam:PutRolePolicy'
+                  - 'iam:UpdateAssumeRolePolicy'
+                Resource:
+                  - '*'
+              - Sid: 5
+                Effect: Allow
+                Action:
+                  - 'kms:Encrypt'
+                  - 'kms:Decrypt'
+                  - 'kms:ReEncrypt*'
+                  - 'kms:GenerateDataKey*'
+                  - 'kms:DescribeKey'
                 Resource:
                   - '*'
   CodeBuildSourceCredential:
@@ -201,7 +223,7 @@ Resources:
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              - Sid: CloudWatchLogsPolicy
+              - Sid: 6
                 Effect: Allow
                 Action:
                   - 'logs:CreateLogGroup'
@@ -209,32 +231,47 @@ Resources:
                   - 'logs:PutLogEvents'
                 Resource:
                   - '*'
-              - Sid: S3GetObjectPolicy
+              - Sid: 7
                 Effect: Allow
                 Action:
                   - 's3:GetObject'
                   - 's3:GetObjectVersion'
-                Resource:
-                  - '*'
-              - Sid: S3PutObjectPolicy
-                Effect: Allow
-                Action:
                   - 's3:PutObject'
-                Resource:
-                  - '*'
-              - Sid: S3BucketIdentity
-                Effect: Allow
-                Action:
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
+                  - 's3:CreateBucket'
+                  - 's3:List*'
                 Resource:
                   - '*'
-              - Sid: CodeBuildPolicy
+              - Sid: 8
                 Action:
                   - 'codebuild:BatchGetBuilds'
                   - 'codebuild:StartBuild'
+                  - 'codebuild:BatchGetBuildBatches'
+                  - 'codebuild:StartBuildBatch'
                 Resource: '*'
                 Effect: Allow
+              - Sid: 9
+                Effect: Allow
+                Action:
+                  - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:GetApplicationRevision'
+                  - 'codedeploy:GetDeployment'
+                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:RegisterApplicationRevision'
+                Resource:
+                  - '*'
+              - Sid: 10
+                Effect: Allow
+                Action:
+                  - 'ecs:DescribeServices'
+                  - 'ecs:DescribeTaskDefinition'
+                  - 'ecs:DescribeTasks'
+                  - 'ecs:ListTasks'
+                  - 'ecs:RegisterTaskDefinition'
+                  - 'ecs:UpdateService'
+                Resource:
+                  - '*'
   CodePipelineArtifactStore:
     Type: 'AWS::S3::Bucket'
     Properties:
