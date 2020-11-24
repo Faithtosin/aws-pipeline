@@ -3,7 +3,7 @@ Description: CI/CD pipeline for GitHub projects
 Parameters:
   MoxaEmuRepositoryName:
     Type: String
-    Default: moxa-emulator-repository
+    Default: moxa-emulator-registry
   GitHubOwner:
     Type: String
     AllowedPattern: '[A-Za-z0-9-]+'
@@ -157,7 +157,7 @@ Resources:
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       Source:
         Type: CODEPIPELINE
-        BuildSpec: deployspec.yaml
+        BuildSpec: buildspec.yaml
       Artifacts:
         Type: CODEPIPELINE
       Environment:
@@ -168,7 +168,8 @@ Resources:
         EnvironmentVariables:
           - Name: ENV_NAME
             Value: dev
-  
+          - Name: REPOSITORY_URI
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName} 
   CodeBuilProjectDeployQa:  
     Type: 'AWS::CodeBuild::Project'
     Properties:
@@ -187,7 +188,8 @@ Resources:
         EnvironmentVariables:
           - Name: ENV_NAME
             Value: qa  
-
+          - Name: REPOSITORY_URI
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName}
   CodeBuilProjectDeployProd:  
     Type: 'AWS::CodeBuild::Project'
     Properties:
