@@ -1,9 +1,15 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: CI/CD pipeline for GitHub projects
 Parameters:
-  MoxaEmuRepositoryName:
+  ENV:
     Type: String
-    Default: moxa-emulator-registry
+    Default: development
+    AllowedValues:
+      - development
+      - production
+  MAGuiRepositoryName:
+    Type: String
+    Default: ma-gui-registry
   GitHubOwner:
     Type: String
     AllowedPattern: '[A-Za-z0-9-]+'
@@ -19,6 +25,23 @@ Parameters:
   CodeBuildEnvironmentImage:
     Type: String
     Default: 'aws/codebuild/standard:4.0'
+Mappings:
+  MAGuiTask:
+    name:
+      development: MAGui-task-dev
+      production: MAGui-task-prod
+  MAGuiContainer:
+    name:
+      development: MAGui-container-dev
+      production: MAGui-container-prod
+  MAGuiCluster:
+    name:
+      development: MAGui-cluster-dev
+      production: MAGui-cluster-prod
+  MAGuiService:
+    name:
+      development: MAGui-service-dev
+      production: MAGui-service-prod
 Resources:
   CodeBuildServiceRole:
     Type: 'AWS::IAM::Role'
@@ -110,48 +133,55 @@ Resources:
                   - 'kms:DescribeKey'
                 Resource:
                   - '*'
-  CodeBuildSourceCredential:
-    Type: 'AWS::CodeBuild::SourceCredential'
+  MAGuiTask:
+    Type: AWS::ECS::TaskDefinition
     Properties:
-      AuthType: PERSONAL_ACCESS_TOKEN
-      ServerType: GITHUB
-      Token: >-
-        {{resolve:secretsmanager:GITHUB_ACCESS:SecretString:GITHUB_ACCESS_TOKEN}}
-  CodeBuilProject:
-    Type: 'AWS::CodeBuild::Project'
+      Family: !FindInMap [MAGuiTask, name, !Ref ENV]
+      ContainerDefinitions:
+        - Name: !FindInMap [MAGuiContainer, name, !Ref ENV]
+          PortMappings:
+            - HostPort: 8080
+              Protocol: tcp
+              ContainerPort: 8080
+          Cpu: '100'
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName}:latest
+          Essential: true
+      ExecutionRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
+      Memory: '2048'
+      NetworkMode: awsvpc
+      Cpu: '1024'
+      RequiresCompatibilities:
+        - 'FARGATE'
+  ECSCluster:
+    Type: AWS::ECS::Cluster
     Properties:
-      Name: !Ref 'AWS::StackName'
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Source:
-        Type: GITHUB
-        Location: !Sub 'https://github.com/${GitHubOwner}/${GitHubRepository}.git'
-        BuildSpec: deployspec.yaml
-        Auth:
-          Type: OAUTH
-          Resource: !Ref CodeBuildSourceCredential
-      Artifacts:
-        Type: NO_ARTIFACTS
-      Triggers:
-        Webhook: true
-        FilterGroups:
-          - - Type: EVENT
-              Pattern: >-
-                PULL_REQUEST_CREATED, PULL_REQUEST_UPDATED,
-                PULL_REQUEST_REOPENED
-            - Type: BASE_REF
-              Pattern: !Sub '^refs/heads/${GitHubBranch}$'
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        PrivilegedMode: true
-        Image: !Ref CodeBuildEnvironmentImage
-        EnvironmentVariables:
-          - Name: ENV_NAME
-            Value: build
-          - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName}
+      ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
+  ClusterService:
+    Type: AWS::ECS::Service
+    DependsOn: [ MAGuiTask, ECSCluster ]
+    Properties:
+      Cluster: !GetAtt ECSCluster.Arn
+      DeploymentConfiguration:
+        MaximumPercent: '200'
+        MinimumHealthyPercent: '100'
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref MAGuiTask
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - sg-01a6d5f5d2be33cda
+            - sg-0c2549adc2373b65a
+          Subnets:
+            - subnet-eae036b7
+            - subnet-05a5627d
+            - subnet-3d1afb77
+            - subnet-bfd19f94
+      ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
   CodeBuilProjectDeployDev:  
     Type: 'AWS::CodeBuild::Project'
+    DependsOn: [MAGuiRepository]
     Properties:
       Name: !Sub '${AWS::StackName}-deploy-dev'
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
@@ -169,47 +199,7 @@ Resources:
           - Name: ENV_NAME
             Value: dev
           - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName} 
-  CodeBuilProjectDeployQa:  
-    Type: 'AWS::CodeBuild::Project'
-    Properties:
-      Name: !Sub '${AWS::StackName}-deploy-qa'
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: deployspec.yaml
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        PrivilegedMode: true
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: !Ref CodeBuildEnvironmentImage
-        EnvironmentVariables:
-          - Name: ENV_NAME
-            Value: qa  
-          - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MoxaEmuRepositoryName}
-  CodeBuilProjectDeployProd:  
-    Type: 'AWS::CodeBuild::Project'
-    Properties:
-      Name: !Sub '${AWS::StackName}-deploy-prod'
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: deployspec.yaml
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        PrivilegedMode: true
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: !Ref CodeBuildEnvironmentImage
-        EnvironmentVariables:
-          - Name: ENV_NAME
-            Value: prod
-
-
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName} 
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -295,13 +285,11 @@ Resources:
       TargetPipeline: !Ref CodePipeline
       TargetAction: Source
       TargetPipelineVersion: !GetAtt CodePipeline.Version
-  MoxaEmuRepository:
-    DependsOn:
-      - CodeBuilProject
+  MAGuiRepository:
     Type: 'AWS::ECR::Repository'
     Properties:
       ImageTagMutability: MUTABLE
-      RepositoryName: !Ref MoxaEmuRepositoryName
+      RepositoryName: !Ref MAGuiRepositoryName
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -335,6 +323,7 @@ Resources:
             Sid: new statement
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
+    DependsOn: [ClusterService,ECSCluster, MAGuiTask, CodePipelineServiceRole, CodeBuilProjectDeployDev,CodePipelineArtifactStore ]
     Properties:
       Name: !Ref 'AWS::StackName'
       RoleArn: !GetAtt CodePipelineServiceRole.Arn
@@ -359,20 +348,6 @@ Resources:
                   {{resolve:secretsmanager:GITHUB_ACCESS:SecretString:GITHUB_ACCESS_TOKEN}}
               OutputArtifacts:
                 - Name: SourceCode
-        - Name: Build
-          Actions:
-            - Name: Build
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
-              Configuration:
-                ProjectName: !Ref CodeBuilProject
-              OutputArtifacts:
-                - Name: BuildOutput
-              InputArtifacts:
-                - Name: SourceCode
         - Name: Dev   
           Actions:
             - Name: Deploy
@@ -384,40 +359,21 @@ Resources:
               Configuration:
                 ProjectName: !Ref CodeBuilProjectDeployDev
               InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
                 - Name: BuildOutput
-        - Name: Qa   
+        - Name: Deploy
           Actions:
-            - Name: Deploy
+            - Name: DeployService
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
               RunOrder: 1
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
               Configuration:
-                ProjectName: !Ref CodeBuilProjectDeployQa
-              InputArtifacts:
-                - Name: BuildOutput
-
-            - Name: Approval
-              RunOrder: 2
-              ActionTypeId:
-                Category: Approval
-                Owner: AWS
-                Provider: Manual
-                Version: '1'
-              Configuration:
-                CustomData: Approve or Reject this change after running tests
-
-        - Name: Prod   
-          Actions:
-            - Name: Deploy
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
-              Configuration:
-                ProjectName: !Ref CodeBuilProjectDeployProd
+                ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
+                ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
+              OutputArtifacts: []
               InputArtifacts:
                 - Name: BuildOutput
