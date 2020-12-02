@@ -7,6 +7,12 @@ Parameters:
     AllowedValues:
       - development
       - production
+  ECSClusterTagKey:
+    Type: String
+    Default: Name
+  ECSClusterTagValue:
+    Type: String
+    Default: CodeDeployEC2Tag
   MAGuiRepositoryName:
     Type: String
     Default: ma-gui-registry
@@ -156,6 +162,9 @@ Resources:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
+      Tags:
+      - Key: !Ref ECSClusterTagKey
+        Value: !Ref ECSClusterTagValue
   ClusterService:
     Type: AWS::ECS::Service
     DependsOn: [ MAGuiTask, ECSCluster ]
@@ -323,6 +332,34 @@ Resources:
                 - ecs.amazonaws.com
             Effect: Allow
             Sid: new statement
+  #Code deploy resources
+  CodeDeployServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS]
+  CodeDeployApplication: 
+    Type: "AWS::CodeDeploy::Application"
+    DependsOn: [ClusterService, CodePipelineServiceRole]
+  CodeDeployDeploymentGroup: 
+    Type: "AWS::CodeDeploy::DeploymentGroup"
+    DependsOn: CodeDeployApplication
+    Properties: 
+      ApplicationName: 
+        Ref: "CodeDeployApplication"
+      DeploymentConfigName: CodeDeployDefault.AllAtOnce
+      Ec2TagFilters:
+        - Key: !Ref ECSClusterTagKey
+          Value: !Ref ECSClusterTagValue
+          Type: KEY_AND_VALUE
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+  #code pipeline resources
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: [ClusterService,ECSCluster, MAGuiTask, CodePipelineServiceRole, CodeBuilProjectDeployDev,CodePipelineArtifactStore ]
@@ -370,12 +407,13 @@ Resources:
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
-                Provider: ECS
+                Provider: CodeDeploy
                 Version: '1'
               RunOrder: 1
               Configuration:
-                ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
-                ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
               OutputArtifacts: []
               InputArtifacts:
                 - Name: BuildOutput
+
