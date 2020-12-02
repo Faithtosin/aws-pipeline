@@ -200,6 +200,8 @@ Resources:
             Value: dev
           - Name: REPOSITORY_URI
             Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName} 
+          - Name: Container_name
+            Value: !FindInMap [MAGuiContainer, name, !Ref ENV]
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
