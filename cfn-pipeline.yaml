@@ -332,33 +332,34 @@ Resources:
                 - ecs.amazonaws.com
             Effect: Allow
             Sid: new statement
-  #Code deploy resources
-  CodeDeployServiceRole:
-    Type: 'AWS::IAM::Role'
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns: [arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS]
-  CodeDeployApplication: 
-    Type: "AWS::CodeDeploy::Application"
-    DependsOn: [ClusterService, CodePipelineServiceRole]
-  CodeDeployDeploymentGroup: 
-    Type: "AWS::CodeDeploy::DeploymentGroup"
-    DependsOn: CodeDeployApplication
-    Properties: 
-      ApplicationName: 
-        Ref: "CodeDeployApplication"
-      DeploymentConfigName: CodeDeployDefault.AllAtOnce
-      Ec2TagFilters:
-        - Key: !Ref ECSClusterTagKey
-          Value: !Ref ECSClusterTagValue
-          Type: KEY_AND_VALUE
-      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+  # #Code deploy resources
+  # CodeDeployServiceRole:
+  #   Type: 'AWS::IAM::Role'
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: codedeploy.amazonaws.com
+  #           Action: 'sts:AssumeRole'
+  #     ManagedPolicyArns: [arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS, arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy, arn:aws:iam::aws:policy/AdministratorAccess]
+  # CodeDeployApplication: 
+  #   Type: "AWS::CodeDeploy::Application"
+  #   DependsOn: [ClusterService, CodePipelineServiceRole]
+  #   Properties:
+  #     ComputePlatform: ECS
+  # CodeDeployDeploymentGroup: 
+  #   Type: "AWS::CodeDeploy::DeploymentGroup"
+  #   DependsOn: CodeDeployApplication
+  #   Properties: 
+  #     ApplicationName: 
+  #       Ref: "CodeDeployApplication"
+  #     DeploymentConfigName: CodeDeployDefault.AllAtOnce
+  #     ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+  #     DeploymentStyle:
+  #       DeploymentOption: WITH_TRAFFIC_CONTROL
+  #       DeploymentType: BLUE_GREEN
   #code pipeline resources
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
@@ -407,12 +408,14 @@ Resources:
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
-                Provider: CodeDeploy
+                Provider: ECS
                 Version: '1'
               RunOrder: 1
               Configuration:
-                ApplicationName: !Ref CodeDeployApplication
-                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+                ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
+                ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
+                # ApplicationName: !Ref CodeDeployApplication
+                # DeploymentGroupName: !Ref CodeDeployDeploymentGroup
               OutputArtifacts: []
               InputArtifacts:
                 - Name: BuildOutput
