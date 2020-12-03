@@ -388,7 +388,7 @@ Resources:
                   {{resolve:secretsmanager:GITHUB_ACCESS:SecretString:GITHUB_ACCESS_TOKEN}}
               OutputArtifacts:
                 - Name: SourceCode
-        - Name: Dev   
+        - Name: Build   
           Actions:
             - Name: Deploy
               ActionTypeId:
