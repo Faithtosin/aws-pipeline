@@ -419,4 +419,13 @@ Resources:
               OutputArtifacts: []
               InputArtifacts:
                 - Name: BuildOutput
+            - Name: QA-check
+              RunOrder: 2
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                CustomData: Approve or Reject this change after running tests in the dev environment
 
