@@ -34,7 +34,7 @@ Parameters:
 Mappings:
   MAGuiTask:
     name:
-      development: MAGui-task-dev
+      development: MAGui-task-dev 
       production: MAGui-task-prod
   MAGuiContainer:
     name:
@@ -48,7 +48,166 @@ Mappings:
     name:
       development: MAGui-service-dev
       production: MAGui-service-prod
+  MAGuiECClusterTargetGroup:
+    name:
+      development: MAGui-targetgroup-dev
+      production: MAGui-targetgroup-prod
+  MAGuiVPCid:
+    name:
+      development: vpc-860268fe 
+      production: ''
+  SGIds:
+    name:
+      development: 'sg-3b17706b'
+      production: ''
+  PubSubNetIds:
+    name:
+      development: 'subnet-eae036b7,subnet-05a5627d,subnet-3d1afb77,subnet-bfd19f94'
+      production: ''
+  PrivSubNetIds:
+    name:
+      development: 'subnet-eae036b7,subnet-05a5627d,subnet-3d1afb77,subnet-bfd19f94'
+      production: ''
+  #!Split [ ",", !FindInMap [PubSubNetIds, name, !Ref ENV] ]
+
 Resources:
+  #ECS Fargate Task Definition
+  MAGuiTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !FindInMap [MAGuiTask, name, !Ref ENV]
+      ContainerDefinitions:
+        - Name: !FindInMap [MAGuiContainer, name, !Ref ENV]
+          PortMappings:
+            - HostPort: 8080
+              Protocol: tcp
+              ContainerPort: 8080
+          Cpu: '100'
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName}:latest
+          #858972826311.dkr.ecr.us-west-2.amazonaws.com/moxa-emulator-registry:latest
+          Essential: true
+      ExecutionRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
+      Memory: '2048'
+      NetworkMode: awsvpc
+      Cpu: '1024'
+      RequiresCompatibilities:
+        - 'FARGATE'
+
+  #ECS Cluster      
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
+      Tags:
+      - Key: !Ref ECSClusterTagKey
+        Value: !Ref ECSClusterTagValue
+  
+  #ECS Service Role
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+
+  #ECS Service
+  ClusterService:
+    Type: AWS::ECS::Service
+    DependsOn: [ MAGuiTask, ECSCluster ]
+    Properties:
+      Cluster: !GetAtt ECSCluster.Arn
+      DeploymentConfiguration:
+        MaximumPercent: '200'
+        MinimumHealthyPercent: '100'
+      DesiredCount: 1
+      LoadBalancers:
+      - ContainerName: !FindInMap [MAGuiContainer, name, !Ref ENV]
+        ContainerPort: '8080'
+        TargetGroupArn: !Ref 'ECSTG'
+      LaunchType: FARGATE
+      TaskDefinition: !Ref MAGuiTask
+      #Role: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - sg-01a6d5f5d2be33cda
+            - sg-0c2549adc2373b65a
+          Subnets:
+            - subnet-eae036b7
+            - subnet-05a5627d
+            - subnet-3d1afb77
+            - subnet-bfd19f94
+      ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
+
+  #Target Group for ECS
+  ECSTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: ECSALB
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: 'ECS-TargetGroup-dev'
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !FindInMap [MAGuiVPCid, name, !Ref ENV]
+
+  #Load Balancer
+  ECSALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: 'Gui-ALB-dev'
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '30'
+      Subnets: !Split [ ",", !FindInMap [PubSubNetIds, name, !Ref ENV] ]
+      SecurityGroups: !Split [ ",", !FindInMap [SGIds, name, !Ref ENV] ]
+
+  #ALB Listener
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: ECSServiceRole
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref 'ECSTG'
+      LoadBalancerArn: !Ref 'ECSALB'
+      Port: '80'
+      Protocol: HTTP
+  
+  #ALB Listener Rule
+  ECSALBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    DependsOn: ALBListener
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref 'ECSTG'
+      Conditions:
+      - Field: path-pattern
+        Values: [/]
+      ListenerArn: !Ref 'ALBListener'
+      Priority: 1
+  #Codebuild Role
   CodeBuildServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -139,55 +298,8 @@ Resources:
                   - 'kms:DescribeKey'
                 Resource:
                   - '*'
-  MAGuiTask:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !FindInMap [MAGuiTask, name, !Ref ENV]
-      ContainerDefinitions:
-        - Name: !FindInMap [MAGuiContainer, name, !Ref ENV]
-          PortMappings:
-            - HostPort: 8080
-              Protocol: tcp
-              ContainerPort: 8080
-          Cpu: '100'
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName}:latest
-          Essential: true
-      ExecutionRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
-      Memory: '2048'
-      NetworkMode: awsvpc
-      Cpu: '1024'
-      RequiresCompatibilities:
-        - 'FARGATE'
-  ECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: !FindInMap [MAGuiCluster, name, !Ref ENV]
-      Tags:
-      - Key: !Ref ECSClusterTagKey
-        Value: !Ref ECSClusterTagValue
-  ClusterService:
-    Type: AWS::ECS::Service
-    DependsOn: [ MAGuiTask, ECSCluster ]
-    Properties:
-      Cluster: !GetAtt ECSCluster.Arn
-      DeploymentConfiguration:
-        MaximumPercent: '200'
-        MinimumHealthyPercent: '100'
-      DesiredCount: 1
-      LaunchType: FARGATE
-      TaskDefinition: !Ref MAGuiTask
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: ENABLED
-          SecurityGroups:
-            - sg-01a6d5f5d2be33cda
-            - sg-0c2549adc2373b65a
-          Subnets:
-            - subnet-eae036b7
-            - subnet-05a5627d
-            - subnet-3d1afb77
-            - subnet-bfd19f94
-      ServiceName: !FindInMap [MAGuiService, name, !Ref ENV]
+
+  #CodeBuild Project
   CodeBuilProjectDeployDev:  
     Type: 'AWS::CodeBuild::Project'
     DependsOn: [MAGuiRepository]
@@ -211,75 +323,153 @@ Resources:
             Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MAGuiRepositoryName} 
           - Name: Container_name
             Value: MAGui-container-dev
+  
+  #CodePipeline Role
   CodePipelineServiceRole:
-    Type: 'AWS::IAM::Role'
+    Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
         Statement:
-          - Effect: Allow
+          - Action: ['sts:AssumeRole']
+            Effect: Allow
             Principal:
-              Service: codepipeline.amazonaws.com
-            Action: 'sts:AssumeRole'
+              Service: [codepipeline.amazonaws.com]
+        Version: '2012-10-17'
+      Path: /
       Policies:
-        - PolicyName: root
+        - PolicyName: MoxaCodePipelineServicePolicy
           PolicyDocument:
-            Version: 2012-10-17
             Statement:
-              - Sid: 6
+              - Action:
+                  - iam:PassRole
+                Resource: "*"
                 Effect: Allow
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource:
-                  - '*'
-              - Sid: 7
+                Condition:
+                  StringEqualsIfExists:
+                    iam:PassedToService:
+                      - cloudformation.amazonaws.com
+                      - elasticbeanstalk.amazonaws.com
+                      - ec2.amazonaws.com
+                      - ecs-tasks.amazonaws.com
+              - Action:
+                  - codepipeline:StartPipelineExecution
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Resource: "*"
                 Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:GetObjectVersion'
-                  - 's3:PutObject'
-                  - 's3:GetBucketAcl'
-                  - 's3:GetBucketLocation'
-                  - 's3:CreateBucket'
-                  - 's3:List*'
-                Resource:
-                  - '*'
-              - Sid: 8
-                Action:
-                  - 'codebuild:BatchGetBuilds'
-                  - 'codebuild:StartBuild'
-                  - 'codebuild:BatchGetBuildBatches'
-                  - 'codebuild:StartBuildBatch'
-                Resource: '*'
+              - Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                Resource: "*"
                 Effect: Allow
-              - Sid: 9
+              - Action:
+                  - codestar-connections:UseConnection
+                Resource: "*"
                 Effect: Allow
-                Action:
-                  - 'codedeploy:CreateDeployment'
-                  - 'codedeploy:GetApplicationRevision'
-                  - 'codedeploy:GetDeployment'
-                  - 'codedeploy:GetDeploymentConfig'
-                  - 'codedeploy:RegisterApplicationRevision'
-                Resource:
-                  - '*'
-              - Sid: 10
+              - Action:
+                  - elasticbeanstalk:*
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - autoscaling:*
+                  - cloudwatch:*
+                  - s3:*
+                  - sns:*
+                  - cloudformation:*
+                  - rds:*
+                  - sqs:*
+                  - ecs:*
+                Resource: "*"
                 Effect: Allow
+              - Action:
+                  - lambda:InvokeFunction
+                  - lambda:ListFunctions
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                  - opsworks:CreateDeployment
+                  - opsworks:DescribeApps
+                  - opsworks:DescribeCommands
+                  - opsworks:DescribeDeployments
+                  - opsworks:DescribeInstances
+                  - opsworks:DescribeStacks
+                  - opsworks:UpdateApp
+                  - opsworks:UpdateStack
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuildBatches
+                  - codebuild:StartBuildBatch
+                Resource: "*"
+                Effect: Allow
+              - Effect: Allow
                 Action:
-                  - 'ecs:DescribeServices'
-                  - 'ecs:DescribeTaskDefinition'
-                  - 'ecs:DescribeTasks'
-                  - 'ecs:ListTasks'
-                  - 'ecs:RegisterTaskDefinition'
-                  - 'ecs:UpdateService'
-                Resource:
-                  - '*'
+                  - devicefarm:ListProjects
+                  - devicefarm:ListDevicePools
+                  - devicefarm:GetRun
+                  - devicefarm:GetUpload
+                  - devicefarm:CreateUpload
+                  - devicefarm:ScheduleRun
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - servicecatalog:ListProvisioningArtifacts
+                  - servicecatalog:CreateProvisioningArtifact
+                  - servicecatalog:DescribeProvisioningArtifact
+                  - servicecatalog:DeleteProvisioningArtifact
+                  - servicecatalog:UpdateProduct
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:DescribeImages
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - states:DescribeExecution
+                  - states:DescribeStateMachine
+                  - states:StartExecution
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - appconfig:StartDeployment
+                  - appconfig:StopDeployment
+                  - appconfig:GetDeployment
+                Resource: "*"
+            Version: '2012-10-17'
+
+  #Code PipelineArtifact Store
   CodePipelineArtifactStore:
     Type: 'AWS::S3::Bucket'
     Properties:
       VersioningConfiguration:
         Status: Enabled
+  
+  #CodePipeline Webhook 
   CodePipelineWebhook:
     Type: 'AWS::CodePipeline::Webhook'
     Properties:
@@ -296,6 +486,8 @@ Resources:
       TargetPipeline: !Ref CodePipeline
       TargetAction: Source
       TargetPipelineVersion: !GetAtt CodePipeline.Version
+  
+  #ECR Repository for Docker Images
   MAGuiRepository:
     Type: 'AWS::ECR::Repository'
     Properties:
@@ -360,7 +552,8 @@ Resources:
   #     DeploymentStyle:
   #       DeploymentOption: WITH_TRAFFIC_CONTROL
   #       DeploymentType: BLUE_GREEN
-  #code pipeline resources
+  
+  #Codepipeline Project
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: [ClusterService,ECSCluster, MAGuiTask, CodePipelineServiceRole, CodeBuilProjectDeployDev,CodePipelineArtifactStore ]
