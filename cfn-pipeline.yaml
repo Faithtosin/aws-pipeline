@@ -337,7 +337,7 @@ Resources:
         Version: '2012-10-17'
       Path: /
       Policies:
-        - PolicyName: MoxaCodePipelineServicePolicy
+        - PolicyName: MACodePipelineServicePolicy
           PolicyDocument:
             Statement:
               - Action:
